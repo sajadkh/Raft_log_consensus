@@ -29,8 +29,8 @@ import (
 // import "bytes"
 // import "encoding/gob"
 
-
-
+var finalVotedFor [100] int
+var finalTerm int
 //
 // as each Raft peer becomes aware that successive log entries are
 // committed, the peer should send an ApplyMsg to the service (or
@@ -57,10 +57,9 @@ type Raft struct {
 	me        	int // index into peers[]
 	state	 	string //mine
 	CurrentTerm	  	int //mine
-	votedFor	[1000] int //mine
+	votedFor	[100] int //mine
 	candidateID int //mine
-	finalVotedFor [1000] int //mine
-	voteCount [1000] int //mine
+	voteCount [100] int //mine
 	leaderTerm int //mine
 }
 
@@ -69,12 +68,14 @@ type Raft struct {
 func (rf *Raft) GetState() (int, bool) {
 	var term int
 	var isleader bool
-	term = rf.CurrentTerm //mine
-	if rf.finalVotedFor[term] == rf.me{
-		isleader = true
-	} else{
-		isleader = false
-	}
+	term = finalTerm
+
+		if finalVotedFor[finalTerm] == rf.me{
+			isleader = true
+		} else{
+			isleader = false
+		}
+
 	return term, isleader
 }
 /*func (rf *Raft) GetState1() (int, int) {
@@ -174,7 +175,7 @@ func (rf *Raft) RequestVote(args RequestVoteArgs, reply *RequestVoteReply) {
 func (rf *Raft) AppendEntries(args AppendEntries, reply *LeaderReply) {
 	var LeaderTerm = args.Term
 	var LeaderID = args.LeaderID
-	rf.finalVotedFor[LeaderTerm] = LeaderID
+	//rf.finalVotedFor[LeaderTerm] = LeaderID
 	//rf.CurrentTerm = LeaderTerm
 	rf.voteCount[LeaderTerm] = 0
 	rf.votedFor[LeaderTerm] = LeaderID
@@ -185,6 +186,7 @@ func (rf *Raft) AppendEntries(args AppendEntries, reply *LeaderReply) {
 		r := rand.Intn(500)
 		var t = time.Duration(r) * time.Millisecond
 		time.Sleep(t)
+		ReElection(rf,rf.me,LeaderTerm)
 	}
 	reply.Rep = 1
 }
@@ -230,10 +232,7 @@ func (rf *Raft) sendAppendEntries(server int, args AppendEntries, reply *LeaderR
 // term. the third return value is true if this server believes it is
 // the leader.
 //
-func (rf *Raft) Start(command interface{}) (int, int, bool) {
-	index := -1
-	term := -1
-	isLeader := true
+func (rf *Raft) Start(command interface{}) (index int, term int, isLeader bool) {
 
 
 
@@ -270,16 +269,22 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.state = "follower"
 	rf.CurrentTerm = -1
 	rf.votedFor[0] = -1
-	rf.finalVotedFor[0] = -1
+	//rf.finalVotedFor[0] = -1
 	rf.voteCount[0] = 0
 	rf.candidateID = me
 	rf.leaderTerm = -1
-
+	/*for v := 0; v < len(rf.votedFor); v++ {
+		rf.votedFor[v] = -1
+	}
+	for c := 0; c < len(rf.voteCount); c++ {
+		rf.voteCount[c] = 0
+	}*/
+	//fmt.Printf("FinalVotedFor: %v", len(rf.finalVotedFor))
 	//time.Sleep(2000 * time.Millisecond)
 	//for i := 0; i < 2; i++ {
 		go func() {
 
-			r := rand.Intn(1000)
+			r := rand.Intn(500)
 			var t = time.Duration(r) * time.Millisecond
 			time.Sleep(t)
 			//fmt.Printf("Index: %v , time: %v\n", me, t)
@@ -293,16 +298,19 @@ func Make(peers []*labrpc.ClientEnd, me int,
 					rf.voteCount[cterm] = rf.voteCount[cterm] + 1
 					if rf.voteCount[cterm] == 2{
 						fmt.Printf("Leader Id: %v, Term: %v\n", rf.candidateID, cterm)
+						finalTerm = cterm
+						finalVotedFor[finalTerm] = rf.me
+
 						var rep LeaderReply
 						for m:=0; m < 3; m++{
-							rf.sendAppendEntries(m,AppendEntries{cterm,rf.candidateID},&rep)
+							rf.sendAppendEntries(m,AppendEntries{finalTerm,finalVotedFor[finalTerm]},&rep)
 						}
-						for cterm >= rf.CurrentTerm{
+						for finalTerm >= rf.CurrentTerm{
 							r := rand.Intn(2)
 							var t = time.Duration(r) * time.Millisecond
 							time.Sleep(t)
 							for m:=0; m < 3; m++{
-								rf.sendAppendEntries(m,AppendEntries{cterm,rf.candidateID},&rep)
+								rf.sendAppendEntries(m,AppendEntries{finalTerm,finalVotedFor[finalTerm]},&rep)
 							}
 						}
 					}
@@ -319,4 +327,36 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 
 	return rf
+}
+func ReElection (rf *Raft, candidateID int, currentTerm int){
+	rf.CurrentTerm = currentTerm + 1
+	var cterm = rf.CurrentTerm
+
+	var result RequestVoteReply
+	for j := 0; j < 3 ; j++{
+		rf.sendRequestVote(j,RequestVoteArgs{cterm,rf.candidateID},&result)
+		if result.VoteGranted == true{
+			rf.voteCount[cterm] = rf.voteCount[cterm] + 1
+			if rf.voteCount[cterm] == 2{
+				fmt.Printf("Leader Id: %v, Term: %v\n", rf.candidateID, cterm)
+				finalTerm = cterm
+				finalVotedFor[finalTerm] = rf.me
+
+				var rep LeaderReply
+				for m:=0; m < 3; m++{
+					rf.sendAppendEntries(m,AppendEntries{finalTerm,finalVotedFor[finalTerm]},&rep)
+				}
+				for finalTerm >= rf.CurrentTerm{
+					r := rand.Intn(2)
+					var t = time.Duration(r) * time.Millisecond
+					time.Sleep(t)
+					for m:=0; m < 3; m++{
+						rf.sendAppendEntries(m,AppendEntries{finalTerm,finalVotedFor[finalTerm]},&rep)
+					}
+				}
+			}
+		}else{
+			rf.CurrentTerm = result.Term
+		}
+	}
 }
