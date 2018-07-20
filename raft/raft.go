@@ -118,6 +118,10 @@ func (rf *Raft) readPersist(data []byte) {
 type AppendEntries struct {
 	Term int
 	LeaderID int
+	PrevLogIndex int
+	PrevLogTerm int
+	Enteries []int
+	LeaderCommit int
 }
 
 //
@@ -127,6 +131,8 @@ type RequestVoteArgs struct {
 	// Your data here.
 	Term int
 	CandidateID int
+	LastLogIndex int
+	LastLogTerm int
 }
 
 //
@@ -232,8 +238,10 @@ func (rf *Raft) sendAppendEntries(server int, args AppendEntries, reply *LeaderR
 // term. the third return value is true if this server believes it is
 // the leader.
 //
-func (rf *Raft) Start(command interface{}) (index int, term int, isLeader bool) {
-
+func (rf *Raft) Start(command interface{}) (int, int, bool) {
+	index := -1;
+	term := -1;
+	isLeader := true;
 
 
 	return index, term, isLeader
